@@ -368,7 +368,7 @@ func (e *Store) GetClusters(limit int64, fn func(interface{}) error) error {
 	e.RLock()
 	defer e.RUnlock()
 
-	return e.getValues(e.clustersDir, limit, func() pb { return &metapb.Cluster{} }, fn)
+	return e.getValues(e.clustersDir, limit, func() store.PB { return &metapb.Cluster{} }, fn)
 }
 
 // GetCluster returns the cluster
@@ -408,7 +408,7 @@ func (e *Store) GetServers(limit int64, fn func(interface{}) error) error {
 	e.RLock()
 	defer e.RUnlock()
 
-	return e.getValues(e.serversDir, limit, func() pb { return &metapb.Server{} }, fn)
+	return e.getValues(e.serversDir, limit, func() store.PB { return &metapb.Server{} }, fn)
 }
 
 // GetServer returns the server
@@ -433,7 +433,7 @@ func (e *Store) PutAPI(value *metapb.API) (uint64, error) {
 	// load all api every times for validate
 	// TODO: maybe need optimization if there are too much apis
 	apiRoute := route.NewRoute()
-	e.getValues(e.apisDir, 64, func() pb { return &metapb.API{} }, func(data interface{}) error {
+	e.getValues(e.apisDir, 64, func() store.PB { return &metapb.API{} }, func(data interface{}) error {
 		v := data.(*metapb.API)
 		if v.ID != value.ID && v.Status == metapb.Up {
 			apiRoute.Add(v)
@@ -466,7 +466,7 @@ func (e *Store) GetAPIs(limit int64, fn func(interface{}) error) error {
 	e.RLock()
 	defer e.RUnlock()
 
-	return e.getValues(e.apisDir, limit, func() pb { return &metapb.API{} }, fn)
+	return e.getValues(e.apisDir, limit, func() store.PB { return &metapb.API{} }, fn)
 }
 
 // GetAPI returns the api
@@ -506,7 +506,7 @@ func (e *Store) GetRoutings(limit int64, fn func(interface{}) error) error {
 	e.RLock()
 	defer e.RUnlock()
 
-	return e.getValues(e.routingsDir, limit, func() pb { return &metapb.Routing{} }, fn)
+	return e.getValues(e.routingsDir, limit, func() store.PB { return &metapb.Routing{} }, fn)
 }
 
 // GetRouting returns a routing
@@ -558,7 +558,7 @@ func (e *Store) GetPlugins(limit int64, fn func(interface{}) error) error {
 	e.RLock()
 	defer e.RUnlock()
 
-	return e.getValues(e.pluginsDir, limit, func() pb { return &metapb.Plugin{} }, fn)
+	return e.getValues(e.pluginsDir, limit, func() store.PB { return &metapb.Plugin{} }, fn)
 }
 
 // GetPlugin returns the plugin
@@ -706,7 +706,7 @@ func (e *Store) BackupTo(to string) error {
 	batch := &rpcpb.BatchReq{}
 
 	// backup server
-	err = e.getValues(e.serversDir, limit, func() pb { return &metapb.Server{} }, func(value interface{}) error {
+	err = e.getValues(e.serversDir, limit, func() store.PB { return &metapb.Server{} }, func(value interface{}) error {
 		batch.PutServers = append(batch.PutServers, &rpcpb.PutServerReq{
 			Server: *value.(*metapb.Server),
 		})
@@ -735,7 +735,7 @@ func (e *Store) BackupTo(to string) error {
 
 	// backup cluster
 	batch = &rpcpb.BatchReq{}
-	err = e.getValues(e.clustersDir, limit, func() pb { return &metapb.Cluster{} }, func(value interface{}) error {
+	err = e.getValues(e.clustersDir, limit, func() store.PB { return &metapb.Cluster{} }, func(value interface{}) error {
 		batch.PutClusters = append(batch.PutClusters, &rpcpb.PutClusterReq{
 			Cluster: *value.(*metapb.Cluster),
 		})
@@ -764,7 +764,7 @@ func (e *Store) BackupTo(to string) error {
 
 	// backup binds
 	batch = &rpcpb.BatchReq{}
-	err = e.getValues(e.clustersDir, limit, func() pb { return &metapb.Cluster{} }, func(value interface{}) error {
+	err = e.getValues(e.clustersDir, limit, func() store.PB { return &metapb.Cluster{} }, func(value interface{}) error {
 		cid := value.(*metapb.Cluster).ID
 		servers, err := e.doGetBindServers(cid)
 		if err != nil {
@@ -804,7 +804,7 @@ func (e *Store) BackupTo(to string) error {
 
 	// backup apis
 	batch = &rpcpb.BatchReq{}
-	err = e.getValues(e.apisDir, limit, func() pb { return &metapb.API{} }, func(value interface{}) error {
+	err = e.getValues(e.apisDir, limit, func() store.PB { return &metapb.API{} }, func(value interface{}) error {
 		batch.PutAPIs = append(batch.PutAPIs, &rpcpb.PutAPIReq{
 			API: *value.(*metapb.API),
 		})
@@ -833,7 +833,7 @@ func (e *Store) BackupTo(to string) error {
 
 	// backup routings
 	batch = &rpcpb.BatchReq{}
-	err = e.getValues(e.routingsDir, limit, func() pb { return &metapb.Routing{} }, func(value interface{}) error {
+	err = e.getValues(e.routingsDir, limit, func() store.PB { return &metapb.Routing{} }, func(value interface{}) error {
 		batch.PutRoutings = append(batch.PutRoutings, &rpcpb.PutRoutingReq{
 			Routing: *value.(*metapb.Routing),
 		})
@@ -862,7 +862,7 @@ func (e *Store) BackupTo(to string) error {
 
 	// backup plugin
 	batch = &rpcpb.BatchReq{}
-	err = e.getValues(e.pluginsDir, limit, func() pb { return &metapb.Plugin{} }, func(value interface{}) error {
+	err = e.getValues(e.pluginsDir, limit, func() store.PB { return &metapb.Plugin{} }, func(value interface{}) error {
 		batch.PutPlugins = append(batch.PutPlugins, &rpcpb.PutPluginReq{
 			Plugin: *value.(*metapb.Plugin),
 		})
@@ -992,13 +992,7 @@ func (e *Store) delete(key string, opts ...clientv3.OpOption) error {
 	return err
 }
 
-type pb interface {
-	Marshal() ([]byte, error)
-	Unmarshal([]byte) error
-	GetID() uint64
-}
-
-func (e *Store) putPB(prefix string, value pb, do func(uint64)) (uint64, error) {
+func (e *Store) putPB(prefix string, value store.PB, do func(uint64)) (uint64, error) {
 	if value.GetID() == 0 {
 		id, err := e.allocID()
 		if err != nil {
@@ -1016,7 +1010,7 @@ func (e *Store) putPB(prefix string, value pb, do func(uint64)) (uint64, error) 
 	return value.GetID(), e.put(getKey(prefix, value.GetID()), string(data))
 }
 
-func (e *Store) putPBWithOp(prefix string, value pb, do func(uint64)) (clientv3.Op, error) {
+func (e *Store) putPBWithOp(prefix string, value store.PB, do func(uint64)) (clientv3.Op, error) {
 	if value.GetID() == 0 {
 		id, err := e.allocID()
 		if err != nil {
@@ -1029,7 +1023,7 @@ func (e *Store) putPBWithOp(prefix string, value pb, do func(uint64)) (clientv3.
 	return e.putPBKeyWithOp(getKey(prefix, value.GetID()), value)
 }
 
-func (e *Store) putPBKeyWithOp(key string, value pb) (clientv3.Op, error) {
+func (e *Store) putPBKeyWithOp(key string, value store.PB) (clientv3.Op, error) {
 	data, err := value.Marshal()
 	if err != nil {
 		return clientv3.Op{}, err
@@ -1038,7 +1032,7 @@ func (e *Store) putPBKeyWithOp(key string, value pb) (clientv3.Op, error) {
 	return e.op(key, string(data)), nil
 }
 
-func (e *Store) getValues(prefix string, limit int64, factory func() pb, fn func(interface{}) error) error {
+func (e *Store) getValues(prefix string, limit int64, factory func() store.PB, fn func(interface{}) error) error {
 	start := uint64(0)
 	end := getKey(prefix, endID)
 	withRange := clientv3.WithRange(end)
@@ -1078,11 +1072,11 @@ func (e *Store) get(key string, opts ...clientv3.OpOption) (*clientv3.GetRespons
 	return clientv3.NewKV(e.rawClient).Get(ctx, key, opts...)
 }
 
-func (e *Store) getPB(prefix string, id uint64, value pb) error {
+func (e *Store) getPB(prefix string, id uint64, value store.PB) error {
 	return e.getPBWithKey(getKey(prefix, id), value, false)
 }
 
-func (e *Store) getPBWithKey(key string, value pb, allowNotFound bool) error {
+func (e *Store) getPBWithKey(key string, value store.PB, allowNotFound bool) error {
 	data, err := e.getValue(key)
 	if err != nil {
 		return err

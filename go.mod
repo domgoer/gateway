@@ -16,15 +16,17 @@ require (
 	github.com/fagongzi/util v0.0.0-20180330021808-4acf02da76a9
 	github.com/garyburd/redigo v0.0.0-20180228092057-a69d19351219
 	github.com/ghodss/yaml v1.0.0 // indirect
-	github.com/gogo/protobuf v0.0.0-20171007142547-342cbe0a0415
+	github.com/gogo/protobuf v1.2.2-0.20190723190241-65acae22fc9d
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b // indirect
 	github.com/golang/groupcache v0.0.0-20181024230925-c65c006176ff // indirect
-	github.com/golang/protobuf v0.0.0-20180430185241-b4deda0973fb
+	github.com/golang/protobuf v1.3.2
 	github.com/google/btree v0.0.0-20180813153112-4030bb1f1f0c // indirect
+	github.com/googleapis/gnostic v0.3.1 // indirect
 	github.com/gorilla/websocket v0.0.0-20180816221803-3ff3320c2a17
 	github.com/grpc-ecosystem/go-grpc-middleware v1.0.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway v1.6.2 // indirect
+	github.com/imdario/mergo v0.3.8 // indirect
 	github.com/jonboulle/clockwork v0.1.0 // indirect
 	github.com/juju/ratelimit v1.0.1
 	github.com/koding/websocketproxy v0.0.0-20180716164433-0fa3f994f6e7
@@ -41,7 +43,8 @@ require (
 	github.com/robertkrimen/otto v0.0.0-20180617131154-15f95af6e78d
 	github.com/sirupsen/logrus v1.2.0 // indirect
 	github.com/soheilhy/cmux v0.0.0-20180129155001-e09e9389d85d
-	github.com/stretchr/testify v1.2.2
+	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/stretchr/testify v1.3.0
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20171017195756-830351dc03c6 // indirect
 	github.com/ugorji/go/codec v0.0.0-20181209151446-772ced7fd4c2 // indirect
 	github.com/valyala/fasthttp v1.2.0
@@ -51,14 +54,15 @@ require (
 	go.uber.org/atomic v1.3.2 // indirect
 	go.uber.org/multierr v1.1.0 // indirect
 	go.uber.org/zap v1.9.1 // indirect
-	golang.org/x/net v0.0.0-20180911220305-26e67e76b6c3
-	golang.org/x/sync v0.0.0-20181108010431-42b317875d0f // indirect
-	golang.org/x/text v0.3.2 // indirect
+	golang.org/x/net v0.0.0-20190812203447-cdfb69ac37fc
+	golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45 // indirect
 	golang.org/x/time v0.0.0-20180412165947-fbb02b2291d2 // indirect
 	google.golang.org/genproto v0.0.0-20180716172848-2731d4fa720b // indirect
 	google.golang.org/grpc v0.0.0-20180619221905-168a6198bcb0
 	gopkg.in/sourcemap.v1 v1.0.5 // indirect
-	gopkg.in/yaml.v2 v2.2.2 // indirect
+	k8s.io/api v0.0.0-20191016225839-816a9b7df678 // indirect
+	k8s.io/client-go v11.0.0+incompatible
+	k8s.io/utils v0.0.0-20191010214722-8d271d903fe4 // indirect
 )
 
 go 1.13

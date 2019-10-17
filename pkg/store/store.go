@@ -27,6 +27,8 @@ var (
 	ErrHasBind = errors.New("Has bind info, can not delete")
 	// ErrStaleOP is a stale error
 	ErrStaleOP = errors.New("stale option")
+	// ErrInvalidConfig config has no key or cannot be unmarshal
+	ErrInvalidConfig = errors.New("invalid config")
 )
 
 // EvtType event type
@@ -153,3 +155,11 @@ type Store interface {
 	Batch(batch *rpcpb.BatchReq) (*rpcpb.BatchRsp, error)
 	System() (*metapb.System, error)
 }
+
+// PB structure of metadata
+type PB interface {
+	Marshal() ([]byte, error)
+	Unmarshal([]byte) error
+	GetID() uint64
+}
+
