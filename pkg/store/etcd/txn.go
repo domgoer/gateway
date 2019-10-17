@@ -1,6 +1,7 @@
-package store
+package etcd
 
 import (
+	"github.com/fagongzi/gateway/pkg/store"
 	"time"
 
 	"github.com/coreos/etcd/clientv3"
@@ -43,7 +44,7 @@ func (t *slowLogTxn) Commit() (*clientv3.TxnResponse, error) {
 	t.cancel()
 
 	cost := time.Now().Sub(start)
-	if cost > DefaultSlowRequestTime {
+	if cost > store.DefaultSlowRequestTime {
 		log.Warn("slow: txn runs too slow, resp=<%v> cost=<%s> errors:\n %+v",
 			resp,
 			cost,
@@ -53,6 +54,6 @@ func (t *slowLogTxn) Commit() (*clientv3.TxnResponse, error) {
 	return resp, err
 }
 
-func (e *EtcdStore) txn() clientv3.Txn {
+func (e *Store) txn() clientv3.Txn {
 	return newSlowLogTxn(e.rawClient)
 }

@@ -1,9 +1,10 @@
-package store
+package etcd
 
 import (
-	"errors"
 	"fmt"
+	"github.com/fagongzi/gateway/pkg/store"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,27 +21,13 @@ import (
 	"golang.org/x/net/context"
 )
 
-var (
-	// ErrHasBind error has bind into, can not delete
-	ErrHasBind = errors.New("Has bind info, can not delete")
-	// ErrStaleOP is a stale error
-	ErrStaleOP = errors.New("stale option")
-)
-
 const (
-	// DefaultTimeout default timeout
-	DefaultTimeout = time.Second * 3
-	// DefaultRequestTimeout default request timeout
-	DefaultRequestTimeout = 10 * time.Second
-	// DefaultSlowRequestTime default slow request time
-	DefaultSlowRequestTime = time.Second * 1
-
 	batch = uint64(1000)
 	endID = uint64(math.MaxUint64)
 )
 
-// EtcdStore etcd store impl
-type EtcdStore struct {
+// Store etcd store impl
+type Store struct {
 	sync.RWMutex
 
 	prefix           string
@@ -58,15 +45,30 @@ type EtcdStore struct {
 	base   uint64
 	end    uint64
 
-	evtCh              chan *Evt
-	watchMethodMapping map[EvtSrc]func(EvtType, *mvccpb.KeyValue) *Evt
+	evtCh              chan *store.Evt
+	watchMethodMapping map[store.EvtSrc]func(store.EvtType, *mvccpb.KeyValue) *store.Evt
 
 	rawClient *clientv3.Client
 }
 
-// NewEtcdStore create a etcd store
-func NewEtcdStore(etcdAddrs []string, prefix string, basicAuth BasicAuth) (Store, error) {
-	store := &EtcdStore{
+func init(){
+	store.SupportSchema["etcd"] = getStoreFrom
+}
+
+func getStoreFrom(addr, prefix string, basicAuth store.BasicAuth) (store.Store, error) {
+	var addrs []string
+	values := strings.Split(addr, ",")
+
+	for _, value := range values {
+		addrs = append(addrs, fmt.Sprintf("http://%s", value))
+	}
+
+	return NewStore(addrs, prefix, basicAuth)
+}
+
+// NewStore create a etcd store
+func NewStore(etcdAddrs []string, prefix string, basicAuth store.BasicAuth) (store.Store, error) {
+	s := &Store{
 		prefix:             prefix,
 		clustersDir:        fmt.Sprintf("%s/clusters", prefix),
 		serversDir:         fmt.Sprintf("%s/servers", prefix),
@@ -77,20 +79,20 @@ func NewEtcdStore(etcdAddrs []string, prefix string, basicAuth BasicAuth) (Store
 		pluginsDir:         fmt.Sprintf("%s/plugins", prefix),
 		appliedPluginDir:   fmt.Sprintf("%s/applied/plugins", prefix),
 		idPath:             fmt.Sprintf("%s/id", prefix),
-		watchMethodMapping: make(map[EvtSrc]func(EvtType, *mvccpb.KeyValue) *Evt),
+		watchMethodMapping: make(map[store.EvtSrc]func(store.EvtType, *mvccpb.KeyValue) *store.Evt),
 		base:               100,
 		end:                100,
 	}
 
 	config := &clientv3.Config{
 		Endpoints:   etcdAddrs,
-		DialTimeout: DefaultTimeout,
+		DialTimeout: store.DefaultTimeout,
 	}
-	if basicAuth.userName != "" {
-		config.Username = basicAuth.userName
+	if basicAuth.UserName != "" {
+		config.Username = basicAuth.UserName
 	}
-	if basicAuth.password != "" {
-		config.Password = basicAuth.password
+	if basicAuth.Password != "" {
+		config.Password = basicAuth.Password
 	}
 
 	cli, err := clientv3.New(*config)
@@ -99,19 +101,19 @@ func NewEtcdStore(etcdAddrs []string, prefix string, basicAuth BasicAuth) (Store
 		return nil, err
 	}
 
-	store.rawClient = cli
+	s.rawClient = cli
 
-	store.init()
-	return store, nil
+	s.init()
+	return s, nil
 }
 
 // Raw returns the raw client
-func (e *EtcdStore) Raw() interface{} {
+func (e *Store) Raw() interface{} {
 	return e.rawClient
 }
 
 // AddBind bind a server to a cluster
-func (e *EtcdStore) AddBind(bind *metapb.Bind) error {
+func (e *Store) AddBind(bind *metapb.Bind) error {
 	e.Lock()
 	defer e.Unlock()
 
@@ -124,7 +126,7 @@ func (e *EtcdStore) AddBind(bind *metapb.Bind) error {
 }
 
 // Batch batch update
-func (e *EtcdStore) Batch(batch *rpcpb.BatchReq) (*rpcpb.BatchRsp, error) {
+func (e *Store) Batch(batch *rpcpb.BatchReq) (*rpcpb.BatchRsp, error) {
 	e.Lock()
 	defer e.Unlock()
 
@@ -288,7 +290,7 @@ func (e *EtcdStore) Batch(batch *rpcpb.BatchReq) (*rpcpb.BatchRsp, error) {
 }
 
 // RemoveBind remove bind
-func (e *EtcdStore) RemoveBind(bind *metapb.Bind) error {
+func (e *Store) RemoveBind(bind *metapb.Bind) error {
 	e.Lock()
 	defer e.Unlock()
 
@@ -296,7 +298,7 @@ func (e *EtcdStore) RemoveBind(bind *metapb.Bind) error {
 }
 
 // RemoveClusterBind remove cluster all bind servers
-func (e *EtcdStore) RemoveClusterBind(id uint64) error {
+func (e *Store) RemoveClusterBind(id uint64) error {
 	e.Lock()
 	defer e.Unlock()
 
@@ -304,14 +306,14 @@ func (e *EtcdStore) RemoveClusterBind(id uint64) error {
 }
 
 // GetBindServers return cluster binds servers
-func (e *EtcdStore) GetBindServers(id uint64) ([]uint64, error) {
+func (e *Store) GetBindServers(id uint64) ([]uint64, error) {
 	e.RLock()
 	defer e.RUnlock()
 
 	return e.doGetBindServers(id)
 }
 
-func (e *EtcdStore) doGetBindServers(id uint64) ([]uint64, error) {
+func (e *Store) doGetBindServers(id uint64) ([]uint64, error) {
 	rsp, err := e.get(e.getClusterBindPrefix(id), clientv3.WithPrefix())
 	if err != nil {
 		return nil, err
@@ -336,7 +338,7 @@ func (e *EtcdStore) doGetBindServers(id uint64) ([]uint64, error) {
 }
 
 // PutCluster add or update the cluster
-func (e *EtcdStore) PutCluster(value *metapb.Cluster) (uint64, error) {
+func (e *Store) PutCluster(value *metapb.Cluster) (uint64, error) {
 	e.Lock()
 	defer e.Unlock()
 
@@ -351,7 +353,7 @@ func (e *EtcdStore) PutCluster(value *metapb.Cluster) (uint64, error) {
 }
 
 // RemoveCluster remove the cluster and it's binds
-func (e *EtcdStore) RemoveCluster(id uint64) error {
+func (e *Store) RemoveCluster(id uint64) error {
 	e.Lock()
 	defer e.Unlock()
 
@@ -362,7 +364,7 @@ func (e *EtcdStore) RemoveCluster(id uint64) error {
 }
 
 // GetClusters returns all clusters
-func (e *EtcdStore) GetClusters(limit int64, fn func(interface{}) error) error {
+func (e *Store) GetClusters(limit int64, fn func(interface{}) error) error {
 	e.RLock()
 	defer e.RUnlock()
 
@@ -370,7 +372,7 @@ func (e *EtcdStore) GetClusters(limit int64, fn func(interface{}) error) error {
 }
 
 // GetCluster returns the cluster
-func (e *EtcdStore) GetCluster(id uint64) (*metapb.Cluster, error) {
+func (e *Store) GetCluster(id uint64) (*metapb.Cluster, error) {
 	e.RLock()
 	defer e.RUnlock()
 
@@ -379,7 +381,7 @@ func (e *EtcdStore) GetCluster(id uint64) (*metapb.Cluster, error) {
 }
 
 // PutServer add or update the server
-func (e *EtcdStore) PutServer(value *metapb.Server) (uint64, error) {
+func (e *Store) PutServer(value *metapb.Server) (uint64, error) {
 	e.Lock()
 	defer e.Unlock()
 
@@ -394,7 +396,7 @@ func (e *EtcdStore) PutServer(value *metapb.Server) (uint64, error) {
 }
 
 // RemoveServer remove the server
-func (e *EtcdStore) RemoveServer(id uint64) error {
+func (e *Store) RemoveServer(id uint64) error {
 	e.Lock()
 	defer e.Unlock()
 
@@ -402,7 +404,7 @@ func (e *EtcdStore) RemoveServer(id uint64) error {
 }
 
 // GetServers returns all server
-func (e *EtcdStore) GetServers(limit int64, fn func(interface{}) error) error {
+func (e *Store) GetServers(limit int64, fn func(interface{}) error) error {
 	e.RLock()
 	defer e.RUnlock()
 
@@ -410,7 +412,7 @@ func (e *EtcdStore) GetServers(limit int64, fn func(interface{}) error) error {
 }
 
 // GetServer returns the server
-func (e *EtcdStore) GetServer(id uint64) (*metapb.Server, error) {
+func (e *Store) GetServer(id uint64) (*metapb.Server, error) {
 	e.RLock()
 	defer e.RUnlock()
 
@@ -419,7 +421,7 @@ func (e *EtcdStore) GetServer(id uint64) (*metapb.Server, error) {
 }
 
 // PutAPI add or update a API
-func (e *EtcdStore) PutAPI(value *metapb.API) (uint64, error) {
+func (e *Store) PutAPI(value *metapb.API) (uint64, error) {
 	err := pbutil.ValidateAPI(value)
 	if err != nil {
 		return 0, err
@@ -452,7 +454,7 @@ func (e *EtcdStore) PutAPI(value *metapb.API) (uint64, error) {
 }
 
 // RemoveAPI remove a api from store
-func (e *EtcdStore) RemoveAPI(id uint64) error {
+func (e *Store) RemoveAPI(id uint64) error {
 	e.Lock()
 	defer e.Unlock()
 
@@ -460,7 +462,7 @@ func (e *EtcdStore) RemoveAPI(id uint64) error {
 }
 
 // GetAPIs returns all api
-func (e *EtcdStore) GetAPIs(limit int64, fn func(interface{}) error) error {
+func (e *Store) GetAPIs(limit int64, fn func(interface{}) error) error {
 	e.RLock()
 	defer e.RUnlock()
 
@@ -468,7 +470,7 @@ func (e *EtcdStore) GetAPIs(limit int64, fn func(interface{}) error) error {
 }
 
 // GetAPI returns the api
-func (e *EtcdStore) GetAPI(id uint64) (*metapb.API, error) {
+func (e *Store) GetAPI(id uint64) (*metapb.API, error) {
 	e.RLock()
 	defer e.RUnlock()
 
@@ -477,7 +479,7 @@ func (e *EtcdStore) GetAPI(id uint64) (*metapb.API, error) {
 }
 
 // PutRouting add or update routing
-func (e *EtcdStore) PutRouting(value *metapb.Routing) (uint64, error) {
+func (e *Store) PutRouting(value *metapb.Routing) (uint64, error) {
 	e.Lock()
 	defer e.Unlock()
 
@@ -492,7 +494,7 @@ func (e *EtcdStore) PutRouting(value *metapb.Routing) (uint64, error) {
 }
 
 // RemoveRouting remove routing
-func (e *EtcdStore) RemoveRouting(id uint64) error {
+func (e *Store) RemoveRouting(id uint64) error {
 	e.Lock()
 	defer e.Unlock()
 
@@ -500,7 +502,7 @@ func (e *EtcdStore) RemoveRouting(id uint64) error {
 }
 
 // GetRoutings returns routes in store
-func (e *EtcdStore) GetRoutings(limit int64, fn func(interface{}) error) error {
+func (e *Store) GetRoutings(limit int64, fn func(interface{}) error) error {
 	e.RLock()
 	defer e.RUnlock()
 
@@ -508,7 +510,7 @@ func (e *EtcdStore) GetRoutings(limit int64, fn func(interface{}) error) error {
 }
 
 // GetRouting returns a routing
-func (e *EtcdStore) GetRouting(id uint64) (*metapb.Routing, error) {
+func (e *Store) GetRouting(id uint64) (*metapb.Routing, error) {
 	e.RLock()
 	defer e.RUnlock()
 
@@ -517,7 +519,7 @@ func (e *EtcdStore) GetRouting(id uint64) (*metapb.Routing, error) {
 }
 
 // PutPlugin add or update the plugin
-func (e *EtcdStore) PutPlugin(value *metapb.Plugin) (uint64, error) {
+func (e *Store) PutPlugin(value *metapb.Plugin) (uint64, error) {
 	e.Lock()
 	defer e.Unlock()
 
@@ -533,7 +535,7 @@ func (e *EtcdStore) PutPlugin(value *metapb.Plugin) (uint64, error) {
 }
 
 // RemovePlugin remove the plugin
-func (e *EtcdStore) RemovePlugin(id uint64) error {
+func (e *Store) RemovePlugin(id uint64) error {
 	e.Lock()
 	defer e.Unlock()
 
@@ -552,7 +554,7 @@ func (e *EtcdStore) RemovePlugin(id uint64) error {
 }
 
 // GetPlugins returns plugins in store
-func (e *EtcdStore) GetPlugins(limit int64, fn func(interface{}) error) error {
+func (e *Store) GetPlugins(limit int64, fn func(interface{}) error) error {
 	e.RLock()
 	defer e.RUnlock()
 
@@ -560,7 +562,7 @@ func (e *EtcdStore) GetPlugins(limit int64, fn func(interface{}) error) error {
 }
 
 // GetPlugin returns the plugin
-func (e *EtcdStore) GetPlugin(id uint64) (*metapb.Plugin, error) {
+func (e *Store) GetPlugin(id uint64) (*metapb.Plugin, error) {
 	e.RLock()
 	defer e.RUnlock()
 
@@ -569,7 +571,7 @@ func (e *EtcdStore) GetPlugin(id uint64) (*metapb.Plugin, error) {
 }
 
 // ApplyPlugins apply plugins
-func (e *EtcdStore) ApplyPlugins(value *metapb.AppliedPlugins) error {
+func (e *Store) ApplyPlugins(value *metapb.AppliedPlugins) error {
 	e.Lock()
 	defer e.Unlock()
 
@@ -582,20 +584,20 @@ func (e *EtcdStore) ApplyPlugins(value *metapb.AppliedPlugins) error {
 }
 
 // GetAppliedPlugins returns applied plugins
-func (e *EtcdStore) GetAppliedPlugins() (*metapb.AppliedPlugins, error) {
+func (e *Store) GetAppliedPlugins() (*metapb.AppliedPlugins, error) {
 	e.RLock()
 	defer e.RUnlock()
 
 	return e.doGetAppliedPlugins()
 }
 
-func (e *EtcdStore) doGetAppliedPlugins() (*metapb.AppliedPlugins, error) {
+func (e *Store) doGetAppliedPlugins() (*metapb.AppliedPlugins, error) {
 	value := &metapb.AppliedPlugins{}
 	return value, e.getPBWithKey(e.appliedPluginDir, value, true)
 }
 
 // RegistryProxy registry
-func (e *EtcdStore) RegistryProxy(proxy *metapb.Proxy, ttl int64) error {
+func (e *Store) RegistryProxy(proxy *metapb.Proxy, ttl int64) error {
 	key := getAddrKey(e.proxiesDir, proxy.Addr)
 	data, err := proxy.Marshal()
 	if err != nil {
@@ -605,7 +607,7 @@ func (e *EtcdStore) RegistryProxy(proxy *metapb.Proxy, ttl int64) error {
 	lessor := clientv3.NewLease(e.rawClient)
 	defer lessor.Close()
 
-	ctx, cancel := context.WithTimeout(e.rawClient.Ctx(), DefaultRequestTimeout)
+	ctx, cancel := context.WithTimeout(e.rawClient.Ctx(), store.DefaultRequestTimeout)
 	leaseResp, err := lessor.Grant(ctx, ttl)
 	cancel()
 	if err != nil {
@@ -621,7 +623,7 @@ func (e *EtcdStore) RegistryProxy(proxy *metapb.Proxy, ttl int64) error {
 }
 
 // GetProxies returns proxies in store
-func (e *EtcdStore) GetProxies(limit int64, fn func(*metapb.Proxy) error) error {
+func (e *Store) GetProxies(limit int64, fn func(*metapb.Proxy) error) error {
 	start := util.MinAddrFormat
 	end := getAddrKey(e.proxiesDir, util.MaxAddrFormat)
 	withRange := clientv3.WithRange(end)
@@ -655,7 +657,7 @@ func (e *EtcdStore) GetProxies(limit int64, fn func(*metapb.Proxy) error) error 
 }
 
 // Clean clean data in store
-func (e *EtcdStore) Clean() error {
+func (e *Store) Clean() error {
 	e.Lock()
 	defer e.Unlock()
 
@@ -663,7 +665,7 @@ func (e *EtcdStore) Clean() error {
 }
 
 // SetID set id
-func (e *EtcdStore) SetID(id uint64) error {
+func (e *Store) SetID(id uint64) error {
 	e.Lock()
 	defer e.Unlock()
 
@@ -674,7 +676,7 @@ func (e *EtcdStore) SetID(id uint64) error {
 	}
 
 	if !rsp.Succeeded {
-		return ErrStaleOP
+		return store.ErrStaleOP
 	}
 
 	e.end = 0
@@ -683,7 +685,7 @@ func (e *EtcdStore) SetID(id uint64) error {
 }
 
 // BackupTo backup to other gateway
-func (e *EtcdStore) BackupTo(to string) error {
+func (e *Store) BackupTo(to string) error {
 	e.Lock()
 	defer e.Unlock()
 
@@ -907,7 +909,7 @@ func (e *EtcdStore) BackupTo(to string) error {
 }
 
 // System returns system info
-func (e *EtcdStore) System() (*metapb.System, error) {
+func (e *Store) System() (*metapb.System, error) {
 	e.RLock()
 	defer e.RUnlock()
 
@@ -951,16 +953,16 @@ func (e *EtcdStore) System() (*metapb.System, error) {
 	return value, nil
 }
 
-func (e *EtcdStore) put(key, value string, opts ...clientv3.OpOption) error {
+func (e *Store) put(key, value string, opts ...clientv3.OpOption) error {
 	_, err := e.txn().Then(clientv3.OpPut(key, value, opts...)).Commit()
 	return err
 }
 
-func (e *EtcdStore) op(key, value string, opts ...clientv3.OpOption) clientv3.Op {
+func (e *Store) op(key, value string, opts ...clientv3.OpOption) clientv3.Op {
 	return clientv3.OpPut(key, value, opts...)
 }
 
-func (e *EtcdStore) putBatch(ops ...clientv3.Op) error {
+func (e *Store) putBatch(ops ...clientv3.Op) error {
 	if len(ops) == 0 {
 		return nil
 	}
@@ -969,11 +971,11 @@ func (e *EtcdStore) putBatch(ops ...clientv3.Op) error {
 	return err
 }
 
-func (e *EtcdStore) putTTL(key, value string, ttl int64) error {
+func (e *Store) putTTL(key, value string, ttl int64) error {
 	lessor := clientv3.NewLease(e.rawClient)
 	defer lessor.Close()
 
-	ctx, cancel := context.WithTimeout(e.rawClient.Ctx(), DefaultRequestTimeout)
+	ctx, cancel := context.WithTimeout(e.rawClient.Ctx(), store.DefaultRequestTimeout)
 	leaseResp, err := lessor.Grant(ctx, ttl)
 	cancel()
 
@@ -985,7 +987,7 @@ func (e *EtcdStore) putTTL(key, value string, ttl int64) error {
 	return err
 }
 
-func (e *EtcdStore) delete(key string, opts ...clientv3.OpOption) error {
+func (e *Store) delete(key string, opts ...clientv3.OpOption) error {
 	_, err := e.txn().Then(clientv3.OpDelete(key, opts...)).Commit()
 	return err
 }
@@ -996,7 +998,7 @@ type pb interface {
 	GetID() uint64
 }
 
-func (e *EtcdStore) putPB(prefix string, value pb, do func(uint64)) (uint64, error) {
+func (e *Store) putPB(prefix string, value pb, do func(uint64)) (uint64, error) {
 	if value.GetID() == 0 {
 		id, err := e.allocID()
 		if err != nil {
@@ -1014,7 +1016,7 @@ func (e *EtcdStore) putPB(prefix string, value pb, do func(uint64)) (uint64, err
 	return value.GetID(), e.put(getKey(prefix, value.GetID()), string(data))
 }
 
-func (e *EtcdStore) putPBWithOp(prefix string, value pb, do func(uint64)) (clientv3.Op, error) {
+func (e *Store) putPBWithOp(prefix string, value pb, do func(uint64)) (clientv3.Op, error) {
 	if value.GetID() == 0 {
 		id, err := e.allocID()
 		if err != nil {
@@ -1027,7 +1029,7 @@ func (e *EtcdStore) putPBWithOp(prefix string, value pb, do func(uint64)) (clien
 	return e.putPBKeyWithOp(getKey(prefix, value.GetID()), value)
 }
 
-func (e *EtcdStore) putPBKeyWithOp(key string, value pb) (clientv3.Op, error) {
+func (e *Store) putPBKeyWithOp(key string, value pb) (clientv3.Op, error) {
 	data, err := value.Marshal()
 	if err != nil {
 		return clientv3.Op{}, err
@@ -1036,7 +1038,7 @@ func (e *EtcdStore) putPBKeyWithOp(key string, value pb) (clientv3.Op, error) {
 	return e.op(key, string(data)), nil
 }
 
-func (e *EtcdStore) getValues(prefix string, limit int64, factory func() pb, fn func(interface{}) error) error {
+func (e *Store) getValues(prefix string, limit int64, factory func() pb, fn func(interface{}) error) error {
 	start := uint64(0)
 	end := getKey(prefix, endID)
 	withRange := clientv3.WithRange(end)
@@ -1069,18 +1071,18 @@ func (e *EtcdStore) getValues(prefix string, limit int64, factory func() pb, fn 
 	return nil
 }
 
-func (e *EtcdStore) get(key string, opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
-	ctx, cancel := context.WithTimeout(e.rawClient.Ctx(), DefaultRequestTimeout)
+func (e *Store) get(key string, opts ...clientv3.OpOption) (*clientv3.GetResponse, error) {
+	ctx, cancel := context.WithTimeout(e.rawClient.Ctx(), store.DefaultRequestTimeout)
 	defer cancel()
 
 	return clientv3.NewKV(e.rawClient).Get(ctx, key, opts...)
 }
 
-func (e *EtcdStore) getPB(prefix string, id uint64, value pb) error {
+func (e *Store) getPB(prefix string, id uint64, value pb) error {
 	return e.getPBWithKey(getKey(prefix, id), value, false)
 }
 
-func (e *EtcdStore) getPBWithKey(key string, value pb, allowNotFound bool) error {
+func (e *Store) getPBWithKey(key string, value pb, allowNotFound bool) error {
 	data, err := e.getValue(key)
 	if err != nil {
 		return err
@@ -1101,8 +1103,8 @@ func (e *EtcdStore) getPBWithKey(key string, value pb, allowNotFound bool) error
 	return nil
 }
 
-func (e *EtcdStore) getValue(key string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(e.rawClient.Ctx(), DefaultRequestTimeout)
+func (e *Store) getValue(key string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(e.rawClient.Ctx(), store.DefaultRequestTimeout)
 	defer cancel()
 
 	resp, err := clientv3.NewKV(e.rawClient).Get(ctx, key)
@@ -1117,7 +1119,7 @@ func (e *EtcdStore) getValue(key string) ([]byte, error) {
 	return resp.Kvs[0].Value, nil
 }
 
-func (e *EtcdStore) allocID() (uint64, error) {
+func (e *Store) allocID() (uint64, error) {
 	e.idLock.Lock()
 	defer e.idLock.Unlock()
 
@@ -1135,7 +1137,7 @@ func (e *EtcdStore) allocID() (uint64, error) {
 	return e.base, nil
 }
 
-func (e *EtcdStore) generate() (uint64, error) {
+func (e *Store) generate() (uint64, error) {
 	for {
 		value, err := e.getID()
 		if err != nil {
@@ -1148,7 +1150,7 @@ func (e *EtcdStore) generate() (uint64, error) {
 		if value == 0 {
 			max := value + batch
 			err := e.createID(max)
-			if err == ErrStaleOP {
+			if err == store.ErrStaleOP {
 				continue
 			}
 			if err != nil {
@@ -1159,7 +1161,7 @@ func (e *EtcdStore) generate() (uint64, error) {
 		}
 
 		err = e.updateID(value, max)
-		if err == ErrStaleOP {
+		if err == store.ErrStaleOP {
 			continue
 		}
 		if err != nil {
@@ -1170,7 +1172,7 @@ func (e *EtcdStore) generate() (uint64, error) {
 	}
 }
 
-func (e *EtcdStore) createID(value uint64) error {
+func (e *Store) createID(value uint64) error {
 	cmp := clientv3.Compare(clientv3.CreateRevision(e.idPath), "=", 0)
 	op := clientv3.OpPut(e.idPath, string(format.Uint64ToBytes(value)))
 	rsp, err := e.txn().If(cmp).Then(op).Commit()
@@ -1179,13 +1181,13 @@ func (e *EtcdStore) createID(value uint64) error {
 	}
 
 	if !rsp.Succeeded {
-		return ErrStaleOP
+		return store.ErrStaleOP
 	}
 
 	return nil
 }
 
-func (e *EtcdStore) getID() (uint64, error) {
+func (e *Store) getID() (uint64, error) {
 	value, err := e.getValue(e.idPath)
 	if err != nil {
 		return 0, err
@@ -1198,7 +1200,7 @@ func (e *EtcdStore) getID() (uint64, error) {
 	return format.BytesToUint64(value)
 }
 
-func (e *EtcdStore) updateID(old, value uint64) error {
+func (e *Store) updateID(old, value uint64) error {
 	cmp := clientv3.Compare(clientv3.Value(e.idPath), "=", string(format.Uint64ToBytes(old)))
 	op := clientv3.OpPut(e.idPath, string(format.Uint64ToBytes(value)))
 	rsp, err := e.txn().If(cmp).Then(op).Commit()
@@ -1207,16 +1209,24 @@ func (e *EtcdStore) updateID(old, value uint64) error {
 	}
 
 	if !rsp.Succeeded {
-		return ErrStaleOP
+		return store.ErrStaleOP
 	}
 
 	return nil
 }
 
-func (e *EtcdStore) getClusterBindPrefix(id uint64) string {
+func (e *Store) getClusterBindPrefix(id uint64) string {
 	return getKey(e.bindsDir, id)
 }
 
-func (e *EtcdStore) getBindKey(bind *metapb.Bind) string {
+func (e *Store) getBindKey(bind *metapb.Bind) string {
 	return getKey(e.getClusterBindPrefix(bind.ClusterID), bind.ServerID)
+}
+
+func getKey(prefix string, id uint64) string {
+	return fmt.Sprintf("%s/%020d", prefix, id)
+}
+
+func getAddrKey(prefix string, addr string) string {
+	return fmt.Sprintf("%s/%s", prefix, util.GetAddrFormat(addr))
 }

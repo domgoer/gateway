@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -8,7 +9,6 @@ import (
 
 	"github.com/fagongzi/gateway/pkg/pb/metapb"
 	"github.com/fagongzi/gateway/pkg/pb/rpcpb"
-	"github.com/fagongzi/gateway/pkg/util"
 )
 
 var (
@@ -19,7 +19,14 @@ var (
 )
 
 var (
-	supportSchema = make(map[string]func(string, string, BasicAuth) (Store, error))
+	SupportSchema = make(map[string]func(string, string, BasicAuth) (Store, error))
+)
+
+var (
+	// ErrHasBind error has bind into, can not delete
+	ErrHasBind = errors.New("Has bind info, can not delete")
+	// ErrStaleOP is a stale error
+	ErrStaleOP = errors.New("stale option")
 )
 
 // EvtType event type
@@ -30,8 +37,8 @@ type EvtSrc int
 
 // BasicAuth basic auth
 type BasicAuth struct {
-	userName string
-	password string
+	UserName string
+	Password string
 }
 
 const (
@@ -62,16 +69,21 @@ const (
 	EventSrcApplyPlugin = EvtSrc(7)
 )
 
+const (
+	// DefaultTimeout default timeout
+	DefaultTimeout = time.Second * 3
+	// DefaultRequestTimeout default request timeout
+	DefaultRequestTimeout = 10 * time.Second
+	// DefaultSlowRequestTime default slow request time
+	DefaultSlowRequestTime = time.Second * 1
+)
+
 // Evt event
 type Evt struct {
 	Src   EvtSrc
 	Type  EvtType
 	Key   string
 	Value interface{}
-}
-
-func init() {
-	supportSchema["etcd"] = getEtcdStoreFrom
 }
 
 // GetStoreFrom returns a store implemention, if not support returns error
@@ -82,23 +94,16 @@ func GetStoreFrom(registryAddr, prefix string, userName string, password string)
 	}
 
 	schema := strings.ToLower(u.Scheme)
-	fn, ok := supportSchema[schema]
+	fn, ok := SupportSchema[schema]
 	if ok {
-		return fn(u.Host, prefix, BasicAuth{userName: userName, password: password})
+		return fn(u.Host, prefix, BasicAuth{UserName: userName, Password: password})
 	}
 
 	return nil, fmt.Errorf("not support: %s", registryAddr)
 }
 
-func getEtcdStoreFrom(addr, prefix string, basicAuth BasicAuth) (Store, error) {
-	var addrs []string
-	values := strings.Split(addr, ",")
-
-	for _, value := range values {
-		addrs = append(addrs, fmt.Sprintf("http://%s", value))
-	}
-
-	return NewEtcdStore(addrs, prefix, basicAuth)
+func getK8sStoreFrom() (Store, error) {
+	return nil, nil
 }
 
 // Store store interface
@@ -147,12 +152,4 @@ type Store interface {
 	BackupTo(to string) error
 	Batch(batch *rpcpb.BatchReq) (*rpcpb.BatchRsp, error)
 	System() (*metapb.System, error)
-}
-
-func getKey(prefix string, id uint64) string {
-	return fmt.Sprintf("%s/%020d", prefix, id)
-}
-
-func getAddrKey(prefix string, addr string) string {
-	return fmt.Sprintf("%s/%s", prefix, util.GetAddrFormat(addr))
 }
